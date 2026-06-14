@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useState, type ChangeEvent } from "react";
+import * as tus from "tus-js-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Progress } from "@/components/ui/progress";
 import { useQueryClient } from "@tanstack/react-query";
 import { Upload, CloudUpload } from "lucide-react";
 
@@ -42,6 +44,59 @@ function buildStoragePath(appId: string, versionNumber: string, fileName: string
   return `versions/${appId || "app"}/${versionNumber || "version"}/${Date.now()}-${safeName}`;
 }
 
+function getDirectStorageEndpoint(supabaseUrl: string) {
+  const url = new URL(supabaseUrl);
+  const projectId = url.hostname.split(".")[0];
+  return `https://${projectId}.storage.supabase.co/storage/v1/upload/resumable`;
+}
+
+function uploadApkResumable(
+  supabaseUrl: string,
+  accessToken: string,
+  file: File,
+  path: string,
+  onProgress: (progress: number) => void,
+) {
+  return new Promise<void>((resolve, reject) => {
+    const upload = new tus.Upload(file, {
+      endpoint: getDirectStorageEndpoint(supabaseUrl),
+      retryDelays: [0, 3000, 5000, 10000, 20000],
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        "x-upsert": "false",
+      },
+      uploadDataDuringCreation: true,
+      removeFingerprintOnSuccess: true,
+      chunkSize: 6 * 1024 * 1024,
+      metadata: {
+        bucketName: "apks",
+        objectName: path,
+        contentType: file.type || "application/vnd.android.package-archive",
+      },
+      onError: () => {
+        reject(new Error("Unable to upload APK."));
+      },
+      onProgress: (bytesUploaded, bytesTotal) => {
+        if (!bytesTotal) return;
+        onProgress(Math.round((bytesUploaded / bytesTotal) * 100));
+      },
+      onSuccess: () => {
+        onProgress(100);
+        resolve();
+      },
+    });
+
+    upload.findPreviousUploads().then((previousUploads) => {
+      if (previousUploads.length) {
+        upload.resumeFromPreviousUpload(previousUploads[0]);
+      }
+
+      upload.start();
+    }).catch(reject);
+  });
+}
+
 export default function UploadVersion() {
   const [, setLocation] = useLocation();
   const searchParams = new URLSearchParams(window.location.search);
@@ -52,6 +107,8 @@ export default function UploadVersion() {
   const queryClient = useQueryClient();
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
 
   const { register, handleSubmit, setValue, watch, formState: { errors, isSubmitting } } = useForm<VersionFormValues>({
     resolver: zodResolver(versionSchema),
@@ -91,22 +148,30 @@ export default function UploadVersion() {
         throw new Error("Supabase is not configured.");
       }
 
-      const storagePath = buildStoragePath(aid, data.versionNumber, selectedFile.name);
-
-      const { error: uploadError } = await supabase.storage.from("apks").upload(storagePath, selectedFile, {
-        contentType: selectedFile.type || "application/vnd.android.package-archive",
-        upsert: false,
-      });
-
-      if (uploadError) {
-        throw uploadError;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        throw new Error("Please sign in again before uploading.");
       }
+
+      const storagePath = buildStoragePath(aid, data.versionNumber, selectedFile.name);
+      setIsUploadingFile(true);
+      setUploadProgress(0);
+      await uploadApkResumable(
+        import.meta.env.VITE_SUPABASE_URL,
+        accessToken,
+        selectedFile,
+        storagePath,
+        setUploadProgress,
+      );
 
       await createVersion.mutateAsync({ appId: aid, data: { ...versionData, apkUrl: storagePath } });
       queryClient.invalidateQueries({ queryKey: getAdminListVersionsQueryKey(aid) });
       setLocation(`/admin/apps/${aid}/versions`);
     } catch (error) {
       console.error(error);
+    } finally {
+      setIsUploadingFile(false);
     }
   };
 
@@ -162,6 +227,7 @@ export default function UploadVersion() {
             {/* APK file */}
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
               <h3 className="font-semibold text-slate-800 text-sm">Upload APK File</h3>
+              <p className="text-xs text-slate-400 -mt-2">Large APKs use a resumable upload.</p>
 
               {/* Upload area */}
               <label className="border-2 border-dashed border-slate-200 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:border-primary/50 transition-colors cursor-pointer">
@@ -180,6 +246,16 @@ export default function UploadVersion() {
                 <p className="text-xs text-slate-500">
                   Selected file: <span className="font-medium text-slate-700">{selectedFileName}</span>
                 </p>
+              )}
+
+              {isUploadingFile && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>Uploading APK</span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  <Progress value={uploadProgress} />
+                </div>
               )}
 
               <div className="space-y-2">
@@ -236,9 +312,9 @@ export default function UploadVersion() {
               <Button type="button" variant="outline" onClick={() => setLocation("/admin/apps")}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSubmitting} className="bg-primary hover:bg-primary/90 text-white">
+              <Button type="submit" disabled={isSubmitting || isUploadingFile} className="bg-primary hover:bg-primary/90 text-white">
                 <Upload className="w-4 h-4 mr-2" />
-                {isSubmitting ? "Uploading..." : "Upload & Publish"}
+                {isUploadingFile ? `Uploading ${uploadProgress}%` : isSubmitting ? "Saving..." : "Upload & Publish"}
               </Button>
             </div>
           </form>
