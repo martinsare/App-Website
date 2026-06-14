@@ -1,5 +1,6 @@
 import { PublicLayout } from "@/components/layout/PublicLayout";
 import { useGetApp, useGetSignedDownloadUrl, useRecordDownload } from "@workspace/api-client-react";
+import { getSupabaseClient } from "@/lib/supabase";
 import { useParams } from "wouter";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -48,13 +49,64 @@ export default function AppDetail() {
 
   const handleDownload = async (versionId: string, apkPath: string) => {
     try {
-      const url = await getSignedDownloadUrl.mutateAsync({ apkPath });
+      if (import.meta.env.DEV) {
+        const url = await getSignedDownloadUrl.mutateAsync({ apkPath });
+        await recordDownload.mutateAsync({
+          data: { appId: app.id, versionId, userAgent: window.navigator.userAgent }
+        });
+        window.location.href = url;
+        return;
+      }
+
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        throw new Error("Supabase is not configured.");
+      }
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        throw new Error("Sign in required to download this APK.");
+      }
+
+      const response = await fetch(`/api/download?versionId=${encodeURIComponent(versionId)}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        window.location.href = `/admin/login?next=${encodeURIComponent(window.location.pathname)}`;
+        return;
+      }
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "Unable to download APK.");
+      }
+
       await recordDownload.mutateAsync({
         data: { appId: app.id, versionId, userAgent: window.navigator.userAgent }
       });
-      window.location.href = url;
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = apkPath.split("/").pop() || `${app.slug}.apk`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
     } catch (error) {
-      window.location.href = `/admin/login?next=${encodeURIComponent(window.location.pathname)}`;
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("Sign in required")) {
+        window.location.href = `/admin/login?next=${encodeURIComponent(window.location.pathname)}`;
+        return;
+      }
+
+      console.error(error);
+      window.alert("Unable to download the APK right now. Please try again.");
     }
   };
 
