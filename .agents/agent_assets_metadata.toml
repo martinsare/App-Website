@@ -60,3 +60,9 @@ id = "mdUA_BmcQxo3STmEC_OFM"
 uri = "file://public/phone-mockup.png"
 type = "image"
 title = "phone-mockup-landing"
+
+[[generated]]
+id = "-gbk8EvOFexsAWBwt0wN5"
+uri = "file://public/amk-icon.png"
+type = "image"
+title = "amk-apps-icon"

@@ -6,7 +6,6 @@ import {
   Upload,
   BarChart,
   LogOut,
-  Smartphone,
   Download,
   Settings,
 } from "lucide-react";
@@ -58,9 +57,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         {/* Logo */}
         <div className="p-5 border-b border-white/10">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="bg-primary p-1.5 rounded-lg">
-              <Smartphone className="h-5 w-5 text-white" />
-            </div>
+            <img src="/amk-icon.png" alt="AMK Apps" className="h-9 w-9 rounded-xl object-cover" />
             <span className="font-bold text-white text-lg tracking-tight">AMK Apps</span>
           </Link>
         </div>

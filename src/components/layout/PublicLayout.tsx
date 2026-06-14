@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Download, ShieldCheck, Smartphone } from "lucide-react";
+import { Download, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface PublicLayoutProps {
@@ -20,9 +20,7 @@ export function PublicLayout({ children }: PublicLayoutProps) {
       <header className="sticky top-0 z-50 w-full bg-[#0b1426] border-b border-white/10">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
-            <div className="bg-primary p-2 rounded-lg text-primary-foreground">
-              <Smartphone className="h-5 w-5" />
-            </div>
+            <img src="/amk-icon.png" alt="AMK Apps" className="h-9 w-9 rounded-xl object-cover" />
             <span className="font-bold text-xl tracking-tight text-white">AMK Apps</span>
           </Link>
 
