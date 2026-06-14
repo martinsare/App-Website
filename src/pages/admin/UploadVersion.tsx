@@ -1,9 +1,11 @@
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { useAdminListApps, useCreateVersion, getAdminListVersionsQueryKey } from "@workspace/api-client-react";
+import { getSupabaseClient } from "@/lib/supabase";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { useState, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,7 +24,6 @@ import { Upload, CloudUpload } from "lucide-react";
 const versionSchema = z.object({
   appId: z.string().min(1, "App selection is required"),
   versionNumber: z.string().min(1, "Version number is required"),
-  apkPath: z.string().min(1, "APK path is required"),
   fileSize: z.string().optional(),
   changelog: z.string().optional(),
   isLatest: z.boolean().default(true),
@@ -30,6 +31,16 @@ const versionSchema = z.object({
 });
 
 type VersionFormValues = z.infer<typeof versionSchema>;
+
+function formatBytes(bytes: number) {
+  const mb = bytes / (1024 * 1024);
+  return `${mb.toFixed(mb >= 10 ? 1 : 2)} MB`;
+}
+
+function buildStoragePath(appId: string, versionNumber: string, fileName: string) {
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  return `versions/${appId || "app"}/${versionNumber || "version"}/${Date.now()}-${safeName}`;
+}
 
 export default function UploadVersion() {
   const [, setLocation] = useLocation();
@@ -39,13 +50,14 @@ export default function UploadVersion() {
   const { data: apps } = useAdminListApps();
   const createVersion = useCreateVersion();
   const queryClient = useQueryClient();
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const { register, handleSubmit, setValue, watch, formState: { errors, isSubmitting } } = useForm<VersionFormValues>({
     resolver: zodResolver(versionSchema),
     defaultValues: {
       appId: initialAppId,
       versionNumber: "",
-      apkPath: "",
       fileSize: "",
       changelog: "",
       isLatest: true,
@@ -56,15 +68,45 @@ export default function UploadVersion() {
   const appId = watch("appId");
   const isLatest = watch("isLatest");
   const isPublished = watch("isPublished");
+  const fileSize = watch("fileSize");
+
+  const handleApkSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setSelectedFile(file);
+    setSelectedFileName(file.name);
+    setValue("fileSize", formatBytes(file.size), { shouldValidate: true });
+  };
 
   const onSubmit = async (data: VersionFormValues) => {
     try {
-      const { appId: aid, apkPath, ...versionData } = data;
-      await createVersion.mutateAsync({ appId: aid, data: { ...versionData, apkUrl: apkPath } });
+      const { appId: aid, ...versionData } = data;
+      if (!selectedFile) {
+        throw new Error("Please choose an APK file first.");
+      }
+
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        throw new Error("Supabase is not configured.");
+      }
+
+      const storagePath = buildStoragePath(aid, data.versionNumber, selectedFile.name);
+
+      const { error: uploadError } = await supabase.storage.from("apks").upload(storagePath, selectedFile, {
+        contentType: selectedFile.type || "application/vnd.android.package-archive",
+        upsert: false,
+      });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      await createVersion.mutateAsync({ appId: aid, data: { ...versionData, apkUrl: storagePath } });
       queryClient.invalidateQueries({ queryKey: getAdminListVersionsQueryKey(aid) });
       setLocation(`/admin/apps/${aid}/versions`);
     } catch (error) {
-      // handled by mutation
+      console.error(error);
     }
   };
 
@@ -122,30 +164,52 @@ export default function UploadVersion() {
               <h3 className="font-semibold text-slate-800 text-sm">Upload APK File</h3>
 
               {/* Upload area */}
-              <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:border-primary/50 transition-colors cursor-pointer">
+              <label className="border-2 border-dashed border-slate-200 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:border-primary/50 transition-colors cursor-pointer">
                 <CloudUpload className="w-10 h-10 text-slate-300 mb-3" />
                 <p className="text-sm font-medium text-slate-600">Click to upload or drag and drop</p>
                 <p className="text-xs text-slate-400 mt-1">APK files only</p>
-              </div>
+                <input
+                  type="file"
+                  accept=".apk,application/vnd.android.package-archive"
+                  className="hidden"
+                  onChange={handleApkSelect}
+                />
+              </label>
+
+              {selectedFileName && (
+                <p className="text-xs text-slate-500">
+                  Selected file: <span className="font-medium text-slate-700">{selectedFileName}</span>
+                </p>
+              )}
 
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-slate-700">APK Path</Label>
                 <Input
-                  placeholder="releases/app-v1.apk"
-                  {...register("apkPath")}
-                  className={errors.apkPath ? "border-red-400" : ""}
+                  value={selectedFileName ? buildStoragePath(appId, watch("versionNumber"), selectedFileName) : ""}
+                  readOnly
+                  className="bg-slate-50"
+                  placeholder="Will be uploaded to Supabase Storage"
                 />
-                {errors.apkPath && <p className="text-xs text-red-500">{errors.apkPath.message}</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-sm font-medium text-slate-700">File Size</Label>
-                  <Input placeholder="e.g. 15.6 MB" {...register("fileSize")} />
+                  <Input
+                    placeholder="Auto-generated from file"
+                    value={fileSize || ""}
+                    readOnly
+                    className="bg-slate-50"
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium text-slate-700">Release Date</Label>
-                  <Input type="date" defaultValue={new Date().toISOString().split('T')[0]} disabled className="text-slate-400" />
+                  <Input
+                    type="text"
+                    value={new Date().toLocaleDateString()}
+                    readOnly
+                    className="bg-slate-50 text-slate-500"
+                  />
                 </div>
               </div>
             </div>

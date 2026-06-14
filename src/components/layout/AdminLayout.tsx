@@ -6,8 +6,6 @@ import {
   Upload,
   BarChart,
   LogOut,
-  Download,
-  Settings,
 } from "lucide-react";
 import { useEffect } from "react";
 
@@ -82,22 +80,6 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             );
           })}
 
-          <div className="pt-3 mt-3 border-t border-white/10 space-y-0.5">
-            <Link
-              href="/admin/analytics"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
-            >
-              <Download className="h-4 w-4 shrink-0" />
-              Downloads
-            </Link>
-            <Link
-              href="/"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
-            >
-              <Settings className="h-4 w-4 shrink-0" />
-              Settings
-            </Link>
-          </div>
         </nav>
 
         {/* Footer */}
