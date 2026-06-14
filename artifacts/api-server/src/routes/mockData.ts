@@ -6,8 +6,7 @@ export const mockApps = [
     shortDescription: "Connect and communicate easily within your department.",
     fullDescription:
       "Department Connect is a powerful communication tool designed for teams and organizations. It provides real-time messaging, file sharing, and task management to streamline your department workflows. Built with security in mind, it keeps all your organizational data safe and accessible.",
-    iconUrl:
-      "https://ui-avatars.com/api/?name=DC&background=4CAF50&color=fff&size=128&bold=true&rounded=true",
+    iconUrl: "/icons/department-connect.png",
     isPublished: true,
     latestVersion: "v1.0.2",
     releaseDate: "2024-05-20",
@@ -22,8 +21,7 @@ export const mockApps = [
     shortDescription: "A simple and secure notes app.",
     fullDescription:
       "AMK Notes is a lightweight, fast, and secure note-taking application. Write, organize, and search your notes with ease. Supports markdown formatting, tags, and cloud backup for seamless access across all your devices.",
-    iconUrl:
-      "https://ui-avatars.com/api/?name=AN&background=2196F3&color=fff&size=128&bold=true&rounded=true",
+    iconUrl: "/icons/amk-notes.png",
     isPublished: true,
     latestVersion: "v2.1.0",
     releaseDate: "2024-05-18",
@@ -38,8 +36,7 @@ export const mockApps = [
     shortDescription: "Clear junk files and speed up your device.",
     fullDescription:
       "AMK Cleaner is an advanced optimization tool for Android devices. It removes junk files, clears cache, and boosts your device performance. With one tap cleaning and real-time monitoring, keep your phone running at its best.",
-    iconUrl:
-      "https://ui-avatars.com/api/?name=AC&background=FF9800&color=fff&size=128&bold=true&rounded=true",
+    iconUrl: "/icons/amk-cleaner.png",
     isPublished: true,
     latestVersion: "v3.5.0",
     releaseDate: "2024-05-15",
@@ -54,8 +51,7 @@ export const mockApps = [
     shortDescription: "Get real-time weather updates.",
     fullDescription:
       "AMK Weather delivers accurate, real-time weather forecasts right to your device. View hourly and 7-day forecasts, weather alerts, and radar maps. Supports multiple locations and beautiful animated weather icons.",
-    iconUrl:
-      "https://ui-avatars.com/api/?name=AW&background=00BCD4&color=fff&size=128&bold=true&rounded=true",
+    iconUrl: "/icons/amk-weather.png",
     isPublished: true,
     latestVersion: "v1.8.0",
     releaseDate: "2024-05-16",
@@ -70,8 +66,7 @@ export const mockApps = [
     shortDescription: "A powerful scientific calculator.",
     fullDescription:
       "AMK Calculator combines a simple everyday calculator with advanced scientific functions. Supports history, unit conversion, and expression editing. Perfect for students and professionals alike.",
-    iconUrl:
-      "https://ui-avatars.com/api/?name=CA&background=9C27B0&color=fff&size=128&bold=true&rounded=true",
+    iconUrl: "/icons/amk-calculator.png",
     isPublished: false,
     latestVersion: "v2.0.6",
     releaseDate: "2024-04-10",
@@ -86,8 +81,7 @@ export const mockApps = [
     shortDescription: "Offline English dictionary and thesaurus.",
     fullDescription:
       "AMK Dictionary is a comprehensive offline English dictionary and thesaurus. Over 200,000 definitions, synonyms, antonyms, and example sentences. No internet required — works completely offline.",
-    iconUrl:
-      "https://ui-avatars.com/api/?name=AD&background=E91E63&color=fff&size=128&bold=true&rounded=true",
+    iconUrl: "/icons/amk-dictionary.png",
     isPublished: false,
     latestVersion: "v1.0.0",
     releaseDate: "2024-04-20",
