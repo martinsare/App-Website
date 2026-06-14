@@ -15,11 +15,11 @@ paths = [ "/" ]
 localPort = 21013
 
 [services.development]
-run = "pnpm --filter @workspace/app-portal run dev"
+run = "pnpm run dev"
 
 [services.production]
-build = [ "pnpm", "--filter", "@workspace/app-portal", "run", "build" ]
-publicDir = "portal/dist/public"
+build = [ "pnpm", "run", "build" ]
+publicDir = "dist/public"
 serve = "static"
 
 [[services.production.rewrites]]

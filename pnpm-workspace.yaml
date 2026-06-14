@@ -35,7 +35,6 @@ minimumReleaseAgeExclude:
   - stripe-replit-sync
 
 packages:
-  - portal
   - server
   - lib/*
   - lib/integrations/*
