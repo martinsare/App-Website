@@ -1,24 +1,24 @@
-import { createClient } from "@supabase/supabase-js";
-import { Readable } from "node:stream";
+const { createClient } = require("@supabase/supabase-js");
+const { Readable } = require("node:stream");
 
 const APK_BUCKET = "apks";
 
-function isAbsoluteUrl(value: string) {
+function isAbsoluteUrl(value) {
   return /^https?:\/\//i.test(value);
 }
 
-function getEnv(name: string) {
+function getEnv(name) {
   const value = process.env[name];
   return value && value.trim().length > 0 ? value.trim() : null;
 }
 
-function getFilename(apkPath: string, versionNumber: string) {
+function getFilename(apkPath, versionNumber) {
   const candidate = apkPath.split("/").pop()?.trim();
   if (candidate) return candidate;
   return `app-${versionNumber}.apk`;
 }
 
-export default async function handler(req: any, res: any) {
+module.exports = async function handler(req, res) {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });
@@ -105,7 +105,7 @@ export default async function handler(req: any, res: any) {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Disposition", `attachment; filename="${filename.replace(/"/g, '\\"')}"`);
 
-  const stream = Readable.fromWeb(remoteResponse.body as any);
+  const stream = Readable.fromWeb(remoteResponse.body);
   stream.on("error", () => {
     if (!res.headersSent) {
       res.status(502);
@@ -113,4 +113,4 @@ export default async function handler(req: any, res: any) {
     res.end();
   });
   stream.pipe(res);
-}
+};
