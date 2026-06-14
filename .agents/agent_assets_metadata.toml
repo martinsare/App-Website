@@ -54,3 +54,9 @@ id = "RGg6MKIVpVEf2D9rcfVfB"
 uri = "file://artifacts/app-portal/public/screenshots/amk-notes-1.png"
 type = "image"
 title = "amk-notes-screenshot-1"
+
+[[generated]]
+id = "mdUA_BmcQxo3STmEC_OFM"
+uri = "file://public/phone-mockup.png"
+type = "image"
+title = "phone-mockup-landing"

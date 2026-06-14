@@ -7,22 +7,9 @@ import {
   BarChart,
   LogOut,
   Smartphone,
-  Menu,
-  FileBox,
+  Download,
+  Settings,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-  SidebarSeparator,
-} from "@/components/ui/sidebar";
 import { useEffect } from "react";
 
 interface AdminLayoutProps {
@@ -32,11 +19,8 @@ interface AdminLayoutProps {
 export function AdminLayout({ children }: AdminLayoutProps) {
   const [location, setLocation] = useLocation();
   const { data: user, isLoading, isError } = useGetMe({
-    query: {
-      retry: false,
-    },
+    query: { retry: false },
   });
-
   const logout = useAdminLogout();
 
   useEffect(() => {
@@ -47,15 +31,13 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center bg-[#0b1426]">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     );
   }
 
-  if (!user) {
-    return null; // Will redirect via useEffect
-  }
+  if (!user) return null;
 
   const handleLogout = async () => {
     await logout.mutateAsync(undefined);
@@ -65,71 +47,88 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const navItems = [
     { href: "/admin/dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { href: "/admin/apps", icon: Package, label: "Apps" },
-    { href: "/admin/upload", icon: Upload, label: "Upload Version" },
+    { href: "/admin/upload", icon: Upload, label: "Versions" },
     { href: "/admin/analytics", icon: BarChart, label: "Analytics" },
   ];
 
   return (
-    <SidebarProvider>
-      <div className="min-h-[100dvh] flex w-full bg-background text-foreground">
-        <Sidebar>
-          <SidebarHeader className="border-b p-4">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="bg-primary p-2 rounded-lg text-primary-foreground">
-                <Smartphone className="h-5 w-5" />
-              </div>
-              <span className="font-bold text-lg tracking-tight">AMK Admin</span>
-            </Link>
-          </SidebarHeader>
-          <SidebarContent>
-            <SidebarMenu className="px-2 py-4">
-              {navItems.map((item) => {
-                const isActive = location.startsWith(item.href);
-                return (
-                  <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton asChild isActive={isActive}>
-                      <Link href={item.href}>
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.label}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarContent>
-          <SidebarFooter className="border-t p-4">
-            <div className="flex items-center justify-between">
-              <div className="text-sm truncate mr-2 text-muted-foreground">
-                {user.email}
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleLogout}
-                title="Logout"
-              >
-                <LogOut className="h-4 w-4" />
-              </Button>
+    <div className="min-h-[100dvh] flex w-full bg-slate-50">
+      {/* Sidebar */}
+      <aside className="w-56 shrink-0 bg-[#0b1426] flex flex-col border-r border-white/10 sticky top-0 h-screen">
+        {/* Logo */}
+        <div className="p-5 border-b border-white/10">
+          <Link href="/" className="flex items-center gap-2.5">
+            <div className="bg-primary p-1.5 rounded-lg">
+              <Smartphone className="h-5 w-5 text-white" />
             </div>
-          </SidebarFooter>
-        </Sidebar>
-
-        <div className="flex-1 flex flex-col min-w-0">
-          <header className="h-14 border-b flex items-center px-4 md:px-6 bg-card sticky top-0 z-10">
-            <SidebarTrigger className="-ml-2 mr-4" />
-            <div className="flex-1" />
-            <Link href="/">
-              <Button variant="outline" size="sm">
-                View Site
-              </Button>
-            </Link>
-          </header>
-          <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-auto">
-            <div className="mx-auto max-w-6xl">{children}</div>
-          </main>
+            <span className="font-bold text-white text-lg tracking-tight">AMK Apps</span>
+          </Link>
         </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
+          {navItems.map((item) => {
+            const isActive = location.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  isActive
+                    ? "bg-primary/20 text-primary"
+                    : "text-slate-400 hover:text-white hover:bg-white/5"
+                }`}
+              >
+                <item.icon className="h-4 w-4 shrink-0" />
+                {item.label}
+              </Link>
+            );
+          })}
+
+          <div className="pt-3 mt-3 border-t border-white/10 space-y-0.5">
+            <Link
+              href="/admin/analytics"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+            >
+              <Download className="h-4 w-4 shrink-0" />
+              Downloads
+            </Link>
+            <Link
+              href="/"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+            >
+              <Settings className="h-4 w-4 shrink-0" />
+              Settings
+            </Link>
+          </div>
+        </nav>
+
+        {/* Footer */}
+        <div className="p-3 border-t border-white/10">
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            Logout
+          </button>
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="h-14 bg-white border-b border-slate-200 flex items-center px-6 sticky top-0 z-10">
+          <div className="flex-1 text-sm text-slate-500">
+            Welcome, <span className="font-medium text-slate-800">Admin</span>
+          </div>
+          <Link href="/">
+            <span className="text-sm text-primary hover:underline cursor-pointer">View Site →</span>
+          </Link>
+        </header>
+        <main className="flex-1 p-6 overflow-auto">
+          <div className="mx-auto max-w-6xl">{children}</div>
+        </main>
       </div>
-    </SidebarProvider>
+    </div>
   );
 }
