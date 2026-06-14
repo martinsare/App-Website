@@ -1,7 +1,6 @@
 import { useMutation, useQuery, type QueryKey, type UseQueryOptions } from "@tanstack/react-query";
-import { format, isWithinInterval, parseISO, startOfDay, subDays, subMonths, subYears } from "date-fns";
-import { getSupabaseClient, hasSupabaseConfig } from "./supabase";
-import { demoCredentials, seedSnapshot } from "./catalog-seed";
+import { isWithinInterval, parseISO, startOfDay, startOfMonth, subDays, subMonths } from "date-fns";
+import { getSupabaseClient } from "./supabase";
 import type {
   AnalyticsSummary,
   AppDetail,
@@ -17,6 +16,7 @@ import type {
   RecentDownload,
   ScreenshotRecord,
   TopApp,
+  TopVersion,
   VersionRecord,
 } from "./catalog-types";
 
@@ -49,16 +49,54 @@ type RecordDownloadInput = {
   userIp?: string;
 };
 
-const STORAGE_KEY = "amk-catalog-state";
-const SESSION_KEY = "amk-admin-session";
+type AppRow = {
+  id: string;
+  slug: string;
+  name: string;
+  short_description: string;
+  full_description: string;
+  icon_url: string | null;
+  featured: boolean;
+  is_published: boolean;
+};
 
-let localCache: CatalogSnapshot | null = null;
-let loadingPromise: Promise<CatalogSnapshot> | null = null;
-let warnedFallback = false;
+type VersionRow = {
+  id: string;
+  app_id: string;
+  version_number: string;
+  apk_path: string;
+  file_size: string | null;
+  changelog: string | null;
+  release_date: string;
+  is_latest: boolean;
+  is_published: boolean;
+};
 
-function cloneSnapshot(snapshot: CatalogSnapshot): CatalogSnapshot {
-  return structuredClone(snapshot);
-}
+type ScreenshotRow = {
+  id: string;
+  app_id: string;
+  image_url: string;
+  sort_order: number;
+};
+
+type DownloadRow = {
+  id: string;
+  app_id: string;
+  version_id: string;
+  downloaded_at: string;
+  user_agent: string | null;
+  user_ip: string | null;
+};
+
+const emptySnapshot: CatalogSnapshot = {
+  apps: [],
+  versions: [],
+  screenshots: [],
+  downloads: [],
+  sessionUser: null,
+};
+
+const APK_BUCKET = "apks";
 
 function createSlug(name: string) {
   return name
@@ -68,51 +106,72 @@ function createSlug(name: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-function getLocalSnapshot(): CatalogSnapshot {
-  if (localCache) return cloneSnapshot(localCache);
-
-  const raw = globalThis.localStorage?.getItem(STORAGE_KEY);
-  if (!raw) {
-    localCache = cloneSnapshot(seedSnapshot);
-    return cloneSnapshot(localCache);
-  }
-
-  try {
-    localCache = JSON.parse(raw) as CatalogSnapshot;
-    return cloneSnapshot(localCache);
-  } catch {
-    localCache = cloneSnapshot(seedSnapshot);
-    return cloneSnapshot(localCache);
-  }
+function emptyIfMissingClient(): CatalogSnapshot {
+  return emptySnapshot;
 }
 
-function setLocalSnapshot(next: CatalogSnapshot) {
-  localCache = cloneSnapshot(next);
-  globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(next));
+function isAbsoluteUrl(value: string) {
+  return /^https?:\/\//i.test(value);
 }
 
-function getLocalSessionUser(): AuthUser | null {
-  const raw = globalThis.localStorage?.getItem(SESSION_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as AuthUser;
-  } catch {
-    return null;
-  }
+function buildApkUrl(apkPath: string) {
+  if (isAbsoluteUrl(apkPath)) return apkPath;
+
+  const supabase = getSupabaseClient();
+  if (!supabase) return apkPath;
+
+  return apkPath;
 }
 
-function setLocalSessionUser(user: AuthUser | null) {
-  if (!user) {
-    globalThis.localStorage?.removeItem(SESSION_KEY);
-    return;
-  }
-  globalThis.localStorage?.setItem(SESSION_KEY, JSON.stringify(user));
+function normalizeApkSource(apkUrl: string) {
+  if (isAbsoluteUrl(apkUrl)) return apkUrl;
+  return buildApkUrl(apkUrl);
 }
 
-function withSession(snapshot: CatalogSnapshot): CatalogSnapshot {
+function mapAppRow(row: AppRow): AppRecord {
   return {
-    ...snapshot,
-    sessionUser: snapshot.sessionUser ?? getLocalSessionUser(),
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    shortDescription: row.short_description,
+    fullDescription: row.full_description,
+    iconUrl: row.icon_url,
+    featured: Boolean(row.featured),
+    isPublished: Boolean(row.is_published),
+  };
+}
+
+function mapVersionRow(row: VersionRow): VersionRecord {
+  return {
+    id: row.id,
+    appId: row.app_id,
+    versionNumber: row.version_number,
+    apkUrl: normalizeApkSource(row.apk_path),
+    fileSize: row.file_size,
+    changelog: row.changelog,
+    releaseDate: row.release_date,
+    isLatest: Boolean(row.is_latest),
+    isPublished: Boolean(row.is_published),
+  };
+}
+
+function mapScreenshotRow(row: ScreenshotRow): ScreenshotRecord {
+  return {
+    id: row.id,
+    appId: row.app_id,
+    imageUrl: row.image_url,
+    sortOrder: Number(row.sort_order ?? 0),
+  };
+}
+
+function mapDownloadRow(row: DownloadRow): DownloadRecord {
+  return {
+    id: row.id,
+    appId: row.app_id,
+    versionId: row.version_id,
+    downloadedAt: row.downloaded_at,
+    userAgent: row.user_agent,
+    userIp: row.user_ip,
   };
 }
 
@@ -186,19 +245,33 @@ function normalizeAppDetail(
   };
 }
 
-function aggregateTopApps(snapshot: CatalogSnapshot, publicView: boolean): TopApp[] {
+function aggregateTopApps(snapshot: CatalogSnapshot): TopApp[] {
   return snapshot.apps
-    .filter((app) => (publicView ? app.isPublished : true))
     .map((app) => {
       const versions = snapshot.versions.filter((version) => version.appId === app.id);
       const latest = versions
-        .filter((version) => (publicView ? version.isPublished : true))
+        .slice()
         .sort((a, b) => new Date(b.releaseDate).getTime() - new Date(a.releaseDate).getTime())[0];
       return {
         appId: app.id,
         appName: app.name,
         latestVersion: latest?.versionNumber ?? null,
         totalDownloads: snapshot.downloads.filter((download) => download.appId === app.id).length,
+      };
+    })
+    .sort((a, b) => b.totalDownloads - a.totalDownloads);
+}
+
+function aggregateTopVersions(snapshot: CatalogSnapshot): TopVersion[] {
+  return snapshot.versions
+    .map((version) => {
+      const app = snapshot.apps.find((item) => item.id === version.appId);
+      return {
+        versionId: version.id,
+        appId: version.appId,
+        appName: app?.name ?? "Unknown App",
+        versionNumber: version.versionNumber,
+        totalDownloads: snapshot.downloads.filter((download) => download.versionId === version.id).length,
       };
     })
     .sort((a, b) => b.totalDownloads - a.totalDownloads);
@@ -223,20 +296,20 @@ function getRecentDownloads(snapshot: CatalogSnapshot): RecentDownload[] {
     });
 }
 
-function buildWeeklyDownloads(snapshot: CatalogSnapshot, days: number) {
-  const end = new Date();
-  const points = Array.from({ length: days }, (_, index) => {
-    const day = subDays(end, days - index - 1);
+function buildWeeklyDownloads(snapshot: CatalogSnapshot) {
+  const today = new Date();
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = subDays(today, 6 - index);
     const start = startOfDay(day);
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
     return {
       date: start.toISOString(),
       count: snapshot.downloads.filter((download) => {
         const downloadedAt = parseISO(download.downloadedAt);
-        return downloadedAt >= start && downloadedAt < new Date(start.getTime() + 24 * 60 * 60 * 1000);
+        return downloadedAt >= start && downloadedAt < end;
       }).length,
     };
   });
-  return points;
 }
 
 function summarizeDownloads(snapshot: CatalogSnapshot): AnalyticsSummary {
@@ -264,160 +337,7 @@ function summarizeDownloads(snapshot: CatalogSnapshot): AnalyticsSummary {
   };
 }
 
-async function loadSnapshot(): Promise<CatalogSnapshot> {
-  if (loadingPromise) return loadingPromise;
-
-  loadingPromise = (async () => {
-    if (!hasSupabaseConfig()) {
-      return withSession(getLocalSnapshot());
-    }
-
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-      return withSession(getLocalSnapshot());
-    }
-
-    try {
-      const [appsRes, versionsRes, screenshotsRes, downloadsRes, userRes] = await Promise.all([
-        supabase.from("apps").select("*").order("name", { ascending: true }),
-        supabase.from("versions").select("*").order("release_date", { ascending: false }),
-        supabase.from("screenshots").select("*").order("sort_order", { ascending: true }),
-        supabase.from("downloads").select("*").order("downloaded_at", { ascending: false }),
-        supabase.auth.getUser(),
-      ]);
-
-      if (appsRes.error || versionsRes.error || screenshotsRes.error || downloadsRes.error) {
-        throw appsRes.error ?? versionsRes.error ?? screenshotsRes.error ?? downloadsRes.error;
-      }
-
-      return {
-        apps: (appsRes.data ?? []).map((row: any) => ({
-          id: row.id,
-          slug: row.slug,
-          name: row.name,
-          shortDescription: row.short_description,
-          fullDescription: row.full_description,
-          iconUrl: row.icon_url ?? null,
-          featured: Boolean(row.featured),
-          isPublished: Boolean(row.is_published),
-        })),
-        versions: (versionsRes.data ?? []).map((row: any) => ({
-          id: row.id,
-          appId: row.app_id,
-          versionNumber: row.version_number,
-          apkUrl: row.apk_url,
-          fileSize: row.file_size ?? null,
-          changelog: row.changelog ?? null,
-          releaseDate: row.release_date,
-          isLatest: Boolean(row.is_latest),
-          isPublished: Boolean(row.is_published),
-        })),
-        screenshots: (screenshotsRes.data ?? []).map((row: any) => ({
-          id: row.id,
-          appId: row.app_id,
-          imageUrl: row.image_url,
-          sortOrder: Number(row.sort_order ?? 0),
-        })),
-        downloads: (downloadsRes.data ?? []).map((row: any) => ({
-          id: row.id,
-          appId: row.app_id,
-          versionId: row.version_id,
-          downloadedAt: row.downloaded_at,
-          userAgent: row.user_agent ?? null,
-          userIp: row.user_ip ?? null,
-        })),
-        sessionUser: userRes.data.user
-          ? { id: userRes.data.user.id, email: userRes.data.user.email ?? "" }
-          : null,
-      };
-    } catch (error) {
-      if (!warnedFallback) {
-        console.warn("Supabase unavailable; using local catalog data.", error);
-        warnedFallback = true;
-      }
-      return withSession(getLocalSnapshot());
-    }
-  })();
-
-  try {
-    const snapshot = await loadingPromise;
-    return snapshot;
-  } finally {
-    loadingPromise = null;
-  }
-}
-
-async function persistSnapshot(next: CatalogSnapshot) {
-  if (!hasSupabaseConfig()) {
-    setLocalSnapshot(next);
-    return;
-  }
-
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    setLocalSnapshot(next);
-    return;
-  }
-
-  await Promise.all([
-    supabase.from("apps").upsert(
-      next.apps.map((app) => ({
-        id: app.id,
-        slug: app.slug,
-        name: app.name,
-        short_description: app.shortDescription,
-        full_description: app.fullDescription,
-        icon_url: app.iconUrl ?? null,
-        featured: app.featured,
-        is_published: app.isPublished,
-      })),
-      { onConflict: "id" },
-    ),
-    supabase.from("versions").upsert(
-      next.versions.map((version) => ({
-        id: version.id,
-        app_id: version.appId,
-        version_number: version.versionNumber,
-        apk_url: version.apkUrl,
-        file_size: version.fileSize ?? null,
-        changelog: version.changelog ?? null,
-        release_date: version.releaseDate,
-        is_latest: version.isLatest,
-        is_published: version.isPublished,
-      })),
-      { onConflict: "id" },
-    ),
-    supabase.from("screenshots").upsert(
-      next.screenshots.map((shot) => ({
-        id: shot.id,
-        app_id: shot.appId,
-        image_url: shot.imageUrl,
-        sort_order: shot.sortOrder,
-      })),
-      { onConflict: "id" },
-    ),
-    supabase.from("downloads").upsert(
-      next.downloads.map((download) => ({
-        id: download.id,
-        app_id: download.appId,
-        version_id: download.versionId,
-        downloaded_at: download.downloadedAt,
-        user_agent: download.userAgent ?? null,
-        user_ip: download.userIp ?? null,
-      })),
-      { onConflict: "id" },
-    ),
-  ]);
-}
-
-async function mutateSnapshot(mutator: (snapshot: CatalogSnapshot) => CatalogSnapshot) {
-  const snapshot = await loadSnapshot();
-  const next = mutator(cloneSnapshot(snapshot));
-  await persistSnapshot(next);
-  return next;
-}
-
-function toPublicApps(snapshot: CatalogSnapshot, search?: string) {
+function filterPublicApps(snapshot: CatalogSnapshot, search?: string) {
   const term = search?.trim().toLowerCase();
   return snapshot.apps
     .filter((app) => app.isPublished)
@@ -431,37 +351,56 @@ function toPublicApps(snapshot: CatalogSnapshot, search?: string) {
     .sort((a, b) => Number(b.featured) - Number(a.featured) || a.name.localeCompare(b.name));
 }
 
-function toAdminApps(snapshot: CatalogSnapshot) {
+function filterAdminApps(snapshot: CatalogSnapshot) {
   return snapshot.apps
     .map((app) => normalizeAppSummary(app, snapshot.versions, snapshot.downloads, false))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function getMe(): Promise<AuthUser | null> {
-  if (!hasSupabaseConfig()) {
-    return getLocalSessionUser();
-  }
+async function loadCatalogSnapshot(): Promise<CatalogSnapshot> {
   const supabase = getSupabaseClient();
-  if (!supabase) return getLocalSessionUser();
-  const { data } = await supabase.auth.getUser();
-  return data.user
-    ? { id: data.user.id, email: data.user.email ?? "" }
-    : getLocalSessionUser();
+  if (!supabase) {
+    return emptyIfMissingClient();
+  }
+
+  const [appsRes, versionsRes, screenshotsRes, downloadsRes] = await Promise.all([
+    supabase.from("apps").select("*").order("name", { ascending: true }),
+    supabase.from("versions").select("*").order("release_date", { ascending: false }),
+    supabase.from("screenshots").select("*").order("sort_order", { ascending: true }),
+    supabase.from("downloads").select("*").order("downloaded_at", { ascending: false }),
+  ]);
+
+  const error = appsRes.error ?? versionsRes.error ?? screenshotsRes.error ?? downloadsRes.error;
+  if (error) {
+    throw error;
+  }
+
+  return {
+    apps: ((appsRes.data ?? []) as AppRow[]).map(mapAppRow),
+    versions: ((versionsRes.data ?? []) as VersionRow[]).map(mapVersionRow),
+    screenshots: ((screenshotsRes.data ?? []) as ScreenshotRow[]).map(mapScreenshotRow),
+    downloads: ((downloadsRes.data ?? []) as DownloadRow[]).map(mapDownloadRow),
+    sessionUser: null,
+  };
+}
+
+async function getMe(): Promise<AuthUser | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) return null;
+
+  return {
+    id: data.user.id,
+    email: data.user.email ?? "",
+  };
 }
 
 async function login(input: LoginInput) {
-  if (!hasSupabaseConfig()) {
-    if (input.email.toLowerCase() !== demoCredentials.email || input.password !== demoCredentials.password) {
-      throw new Error("Invalid credentials");
-    }
-    const user = { id: "local-admin", email: input.email };
-    setLocalSessionUser(user);
-    return user;
-  }
-
   const supabase = getSupabaseClient();
   if (!supabase) {
-    throw new Error("Supabase client unavailable");
+    throw new Error("Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
   }
 
   const { data, error } = await supabase.auth.signInWithPassword({
@@ -477,100 +416,106 @@ async function login(input: LoginInput) {
 }
 
 async function logout() {
-  if (!hasSupabaseConfig()) {
-    setLocalSessionUser(null);
-    return;
-  }
   const supabase = getSupabaseClient();
-  if (!supabase) {
-    setLocalSessionUser(null);
-    return;
-  }
+  if (!supabase) return;
   await supabase.auth.signOut();
 }
 
 async function createApp(input: AppInput) {
-  const slug = createSlug(input.name);
-  const app: AppRecord = {
-    id: crypto.randomUUID(),
-    slug,
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    throw new Error("Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+  }
+
+  const payload = {
+    slug: createSlug(input.name),
     name: input.name,
-    shortDescription: input.shortDescription,
-    fullDescription: input.fullDescription,
-    iconUrl: input.iconUrl || null,
+    short_description: input.shortDescription,
+    full_description: input.fullDescription,
+    icon_url: input.iconUrl || null,
     featured: false,
-    isPublished: input.isPublished,
+    is_published: input.isPublished,
   };
 
-  const next = await mutateSnapshot((snapshot) => {
-    snapshot.apps.push(app);
-    return snapshot;
-  });
+  const { data, error } = await supabase.from("apps").insert(payload).select("*").single();
+  if (error || !data) {
+    throw error ?? new Error("Unable to create app");
+  }
 
-  return normalizeAppSummary(app, next.versions, next.downloads, false);
+  const snapshot = await loadCatalogSnapshot();
+  const app = mapAppRow(data as AppRow);
+  return normalizeAppSummary(app, snapshot.versions, snapshot.downloads, false);
 }
 
 async function updateApp(id: string, input: AppInput) {
-  let updated: AppRecord | null = null;
-  const next = await mutateSnapshot((snapshot) => {
-    const app = snapshot.apps.find((item) => item.id === id);
-    if (!app) throw new Error("App not found");
-    app.name = input.name;
-    app.slug = createSlug(input.name);
-    app.shortDescription = input.shortDescription;
-    app.fullDescription = input.fullDescription;
-    app.iconUrl = input.iconUrl || null;
-    app.isPublished = input.isPublished;
-    updated = app;
-    return snapshot;
-  });
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    throw new Error("Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+  }
 
-  if (!updated) throw new Error("App not found");
-  return normalizeAppSummary(updated, next.versions, next.downloads, false);
+  const payload = {
+    slug: createSlug(input.name),
+    name: input.name,
+    short_description: input.shortDescription,
+    full_description: input.fullDescription,
+    icon_url: input.iconUrl || null,
+    is_published: input.isPublished,
+  };
+
+  const { data, error } = await supabase.from("apps").update(payload).eq("id", id).select("*").single();
+  if (error || !data) {
+    throw error ?? new Error("App not found");
+  }
+
+  const snapshot = await loadCatalogSnapshot();
+  const app = mapAppRow(data as AppRow);
+  return normalizeAppSummary(app, snapshot.versions, snapshot.downloads, false);
 }
 
 async function deleteApp(id: string) {
-  await mutateSnapshot((snapshot) => {
-    snapshot.apps = snapshot.apps.filter((app) => app.id !== id);
-    snapshot.versions = snapshot.versions.filter((version) => version.appId !== id);
-    snapshot.screenshots = snapshot.screenshots.filter((shot) => shot.appId !== id);
-    snapshot.downloads = snapshot.downloads.filter((download) => download.appId !== id);
-    return snapshot;
-  });
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    throw new Error("Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+  }
+
+  const { error } = await supabase.from("apps").delete().eq("id", id);
+  if (error) {
+    throw error;
+  }
 }
 
 async function createVersion(appId: string, input: VersionInput) {
-  let nextVersion: VersionRecord | null = null;
-  const next = await mutateSnapshot((snapshot) => {
-    const exists = snapshot.apps.some((app) => app.id === appId);
-    if (!exists) throw new Error("App not found");
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    throw new Error("Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+  }
 
-    if (input.isLatest) {
-      snapshot.versions
-        .filter((version) => version.appId === appId)
-        .forEach((version) => {
-          version.isLatest = false;
-        });
-    }
+  const appCheck = await supabase.from("apps").select("id").eq("id", appId).maybeSingle();
+  if (appCheck.error) throw appCheck.error;
+  if (!appCheck.data) throw new Error("App not found");
 
-    nextVersion = {
-      id: crypto.randomUUID(),
-      appId,
-      versionNumber: input.versionNumber,
-      apkUrl: input.apkUrl,
-      fileSize: input.fileSize || null,
-      changelog: input.changelog || null,
-      releaseDate: new Date().toISOString(),
-      isLatest: input.isLatest,
-      isPublished: input.isPublished,
-    };
+  if (input.isLatest) {
+    const clearLatest = await supabase.from("versions").update({ is_latest: false }).eq("app_id", appId);
+    if (clearLatest.error) throw clearLatest.error;
+  }
 
-    snapshot.versions.push(nextVersion);
-    return snapshot;
-  });
+  const payload = {
+    app_id: appId,
+    version_number: input.versionNumber,
+    apk_path: input.apkUrl,
+    file_size: input.fileSize ?? null,
+    changelog: input.changelog ?? null,
+    release_date: new Date().toISOString(),
+    is_latest: input.isLatest,
+    is_published: input.isPublished,
+  };
 
-  const version = nextVersion as unknown as VersionRecord;
-  if (!version) throw new Error("Unable to create version");
+  const { data, error } = await supabase.from("versions").insert(payload).select("*").single();
+  if (error || !data) {
+    throw error ?? new Error("Unable to create version");
+  }
+
+  const version = mapVersionRow(data as VersionRow);
   return {
     id: version.id,
     appId: version.appId,
@@ -586,42 +531,82 @@ async function createVersion(appId: string, input: VersionInput) {
 }
 
 async function deleteVersion(id: string) {
-  await mutateSnapshot((snapshot) => {
-    const version = snapshot.versions.find((item) => item.id === id);
-    if (!version) throw new Error("Version not found");
-    snapshot.downloads = snapshot.downloads.filter((download) => download.versionId !== id);
-    snapshot.versions = snapshot.versions.filter((item) => item.id !== id);
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    throw new Error("Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+  }
 
-    if (version.isLatest) {
-      const remaining = snapshot.versions
-        .filter((item) => item.appId === version.appId)
-        .sort((a, b) => new Date(b.releaseDate).getTime() - new Date(a.releaseDate).getTime());
-      if (remaining[0]) {
-        remaining[0].isLatest = true;
-      }
+  const versionRes = await supabase.from("versions").select("*").eq("id", id).maybeSingle();
+  if (versionRes.error) throw versionRes.error;
+  if (!versionRes.data) throw new Error("Version not found");
+
+  const deleteRes = await supabase.from("versions").delete().eq("id", id);
+  if (deleteRes.error) throw deleteRes.error;
+
+  if (versionRes.data.is_latest) {
+    const remaining = await supabase
+      .from("versions")
+      .select("*")
+      .eq("app_id", versionRes.data.app_id)
+      .order("release_date", { ascending: false });
+
+    if (remaining.error) throw remaining.error;
+
+    const nextLatest = (remaining.data ?? [])[0] as VersionRow | undefined;
+    if (nextLatest) {
+      const updateRes = await supabase.from("versions").update({ is_latest: true }).eq("id", nextLatest.id);
+      if (updateRes.error) throw updateRes.error;
     }
-    return snapshot;
-  });
+  }
 }
 
 async function recordDownload(input: RecordDownloadInput) {
-  const next = await mutateSnapshot((snapshot) => {
-    snapshot.downloads.push({
-      id: crypto.randomUUID(),
-      appId: input.appId,
-      versionId: input.versionId,
-      downloadedAt: new Date().toISOString(),
-      userAgent: input.userAgent ?? null,
-      userIp: input.userIp ?? null,
-    });
-    return snapshot;
-  });
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    throw new Error("Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+  }
 
-  return next.downloads[next.downloads.length - 1];
+  const payload = {
+    app_id: input.appId,
+    version_id: input.versionId,
+    downloaded_at: new Date().toISOString(),
+    user_agent: input.userAgent ?? null,
+    user_ip: input.userIp ?? null,
+  };
+
+  const { data, error } = await supabase.from("downloads").insert(payload).select("*").single();
+  if (error || !data) {
+    throw error ?? new Error("Unable to record download");
+  }
+
+  return mapDownloadRow(data as DownloadRow);
+}
+
+async function getSignedDownloadUrl(apkPath: string) {
+  if (isAbsoluteUrl(apkPath)) {
+    return apkPath;
+  }
+
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    throw new Error("Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+  }
+
+  const { data: userRes, error: userError } = await supabase.auth.getUser();
+  if (userError || !userRes.user) {
+    throw new Error("Sign in required to download this APK.");
+  }
+
+  const { data, error } = await supabase.storage.from(APK_BUCKET).createSignedUrl(apkPath, 60);
+  if (error || !data?.signedUrl) {
+    throw error ?? new Error("Unable to create download link");
+  }
+
+  return data.signedUrl;
 }
 
 async function getAppBySlug(slug: string, publicView: boolean) {
-  const snapshot = await loadSnapshot();
+  const snapshot = await loadCatalogSnapshot();
   const app = snapshot.apps.find((item) => item.slug === slug);
   if (!app) return null;
   if (publicView && !app.isPublished) return null;
@@ -629,7 +614,7 @@ async function getAppBySlug(slug: string, publicView: boolean) {
 }
 
 async function getAppById(id: string, publicView: boolean) {
-  const snapshot = await loadSnapshot();
+  const snapshot = await loadCatalogSnapshot();
   const app = snapshot.apps.find((item) => item.id === id);
   if (!app) return null;
   if (publicView && !app.isPublished) return null;
@@ -637,7 +622,7 @@ async function getAppById(id: string, publicView: boolean) {
 }
 
 async function listVersions(appId: string, publicView: boolean) {
-  const snapshot = await loadSnapshot();
+  const snapshot = await loadCatalogSnapshot();
   return snapshot.versions
     .filter((version) => version.appId === appId)
     .filter((version) => (publicView ? version.isPublished : true))
@@ -657,68 +642,78 @@ async function listVersions(appId: string, publicView: boolean) {
 }
 
 async function getDashboardStats(): Promise<DashboardStats> {
-  const snapshot = await loadSnapshot();
+  const snapshot = await loadCatalogSnapshot();
   return {
-    totalApps: snapshot.apps.filter((app) => app.isPublished).length,
+    totalApps: snapshot.apps.length,
+    totalVersions: snapshot.versions.length,
     totalDownloads: snapshot.downloads.length,
     downloadsToday: summarizeDownloads(snapshot).downloadsToday,
-    weeklyDownloads: buildWeeklyDownloads(snapshot, 7),
+    weeklyDownloads: buildWeeklyDownloads(snapshot),
     recentDownloads: getRecentDownloads(snapshot),
   };
 }
 
 async function getAnalyticsSummary(): Promise<AnalyticsSummary> {
-  const snapshot = await loadSnapshot();
+  const snapshot = await loadCatalogSnapshot();
   return summarizeDownloads(snapshot);
 }
 
 async function getDownloadsOverTime(period: GetDownloadsOverTimePeriod) {
-  const snapshot = await loadSnapshot();
+  const snapshot = await loadCatalogSnapshot();
   const now = new Date();
-  const start =
-    period === "year"
-      ? subYears(now, 1)
-      : period === "month"
-        ? subMonths(now, 1)
-        : subDays(now, 7);
 
-  const days = period === "year" ? 12 : period === "month" ? 30 : 7;
-  const points = Array.from({ length: days }, (_, index) => {
+  if (period === "year") {
+    return Array.from({ length: 12 }, (_, index) => {
+      const month = startOfMonth(subMonths(now, 11 - index));
+      const nextMonth = startOfMonth(subMonths(now, 10 - index));
+      return {
+        date: month.toISOString(),
+        count: snapshot.downloads.filter((download) => {
+          const downloadedAt = parseISO(download.downloadedAt);
+          return downloadedAt >= month && downloadedAt < nextMonth;
+        }).length,
+      };
+    });
+  }
+
+  const days = period === "month" ? 30 : 7;
+  return Array.from({ length: days }, (_, index) => {
     const day = subDays(now, days - index - 1);
     const dayStart = startOfDay(day);
-    const dayEnd = startOfDay(new Date(day.getTime() + 24 * 60 * 60 * 1000));
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
     return {
       date: dayStart.toISOString(),
       count: snapshot.downloads.filter((download) => {
         const downloadedAt = parseISO(download.downloadedAt);
-        return downloadedAt >= start && downloadedAt >= dayStart && downloadedAt < dayEnd;
+        return downloadedAt >= dayStart && downloadedAt < dayEnd;
       }).length,
     };
   });
-
-  return points;
 }
 
 async function getTopApps() {
-  const snapshot = await loadSnapshot();
-  return aggregateTopApps(snapshot, false);
+  const snapshot = await loadCatalogSnapshot();
+  return aggregateTopApps(snapshot);
+}
+
+async function getTopVersions() {
+  const snapshot = await loadCatalogSnapshot();
+  return aggregateTopVersions(snapshot);
 }
 
 async function listPublicApps(search?: string) {
-  const snapshot = await loadSnapshot();
-  return toPublicApps(snapshot, search);
+  const snapshot = await loadCatalogSnapshot();
+  return filterPublicApps(snapshot, search);
 }
 
 async function listFeaturedApps() {
-  const snapshot = await loadSnapshot();
-  return toPublicApps(snapshot)
-    .filter((app) => app.featured)
-    .slice(0, 4);
+  const snapshot = await loadCatalogSnapshot();
+  return filterPublicApps(snapshot).filter((app) => app.featured).slice(0, 4);
 }
 
 async function listAdminApps() {
-  const snapshot = await loadSnapshot();
-  return toAdminApps(snapshot);
+  const snapshot = await loadCatalogSnapshot();
+  return filterAdminApps(snapshot);
 }
 
 export function getAdminGetAppQueryKey(id?: string) {
@@ -775,6 +770,12 @@ export function useGetApp(slug?: string, options?: QueryOpts<AppDetail | null>) 
 export function useRecordDownload() {
   return useMutation({
     mutationFn: async ({ data }: { data: RecordDownloadInput }) => recordDownload(data),
+  });
+}
+
+export function useGetSignedDownloadUrl() {
+  return useMutation({
+    mutationFn: async ({ apkPath }: { apkPath: string }) => getSignedDownloadUrl(apkPath),
   });
 }
 
@@ -863,4 +864,22 @@ export function useGetTopApps() {
   });
 }
 
-export type { AnalyticsSummary, AppDetail, AppSummary, AppVersion, AuthUser, DashboardStats, GetDownloadsOverTimePeriod, RecentDownload, TopApp };
+export function useGetTopVersions() {
+  return useQuery({
+    queryKey: ["/api/admin/analytics/top-versions"],
+    queryFn: getTopVersions,
+  });
+}
+
+export type {
+  AnalyticsSummary,
+  AppDetail,
+  AppSummary,
+  AppVersion,
+  AuthUser,
+  DashboardStats,
+  GetDownloadsOverTimePeriod,
+  RecentDownload,
+  TopApp,
+  TopVersion,
+};

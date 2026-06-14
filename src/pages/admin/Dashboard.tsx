@@ -1,5 +1,5 @@
 import { AdminLayout } from "@/components/layout/AdminLayout";
-import { useGetDashboardStats } from "@workspace/api-client-react";
+import { useGetDashboardStats, useGetTopApps, useGetTopVersions } from "@workspace/api-client-react";
 import { Smartphone, Download, Activity, TrendingUp } from "lucide-react";
 import {
   LineChart,
@@ -13,6 +13,8 @@ import {
 
 export default function Dashboard() {
   const { data: stats, isLoading } = useGetDashboardStats();
+  const { data: topApps } = useGetTopApps();
+  const { data: topVersions } = useGetTopVersions();
 
   if (isLoading) {
     return (
@@ -30,34 +32,30 @@ export default function Dashboard() {
     {
       label: "Total Apps",
       value: stats.totalApps,
-      change: "+12.5%",
       icon: Smartphone,
       color: "text-blue-500",
       bg: "bg-blue-50",
     },
     {
-      label: "1st Downloads",
-      value: stats.totalDownloads.toLocaleString(),
-      change: "+8.2%",
-      icon: Download,
-      color: "text-green-500",
-      bg: "bg-green-50",
+      label: "Total Versions",
+      value: stats.totalVersions,
+      icon: TrendingUp,
+      color: "text-purple-500",
+      bg: "bg-purple-50",
     },
     {
       label: "Downloads Today",
-      value: stats.downloadsToday.toLocaleString(),
-      change: "+4.1%",
+      value: stats.downloadsToday,
       icon: Activity,
       color: "text-orange-500",
       bg: "bg-orange-50",
     },
     {
-      label: "Spare Versions",
-      value: "28",
-      change: "+13.5%",
-      icon: TrendingUp,
-      color: "text-purple-500",
-      bg: "bg-purple-50",
+      label: "Total Downloads",
+      value: stats.totalDownloads.toLocaleString(),
+      icon: Download,
+      color: "text-green-500",
+      bg: "bg-green-50",
     },
   ];
 
@@ -80,7 +78,6 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="text-2xl font-bold text-slate-900">{card.value}</div>
-              <div className="text-xs text-green-600 font-medium mt-1">{card.change} this week</div>
             </div>
           ))}
         </div>
@@ -127,18 +124,38 @@ export default function Dashboard() {
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             <h2 className="font-semibold text-slate-900 mb-4">Top Apps</h2>
             <div className="space-y-3">
-              {stats.recentDownloads?.slice(0, 5).map((dl, i) => (
-                <div key={dl.id} className="flex items-center justify-between">
+              {topApps?.slice(0, 5).map((app, i) => (
+                <div key={app.appId} className="flex items-center justify-between">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-xs text-slate-400 w-4 shrink-0">{i + 1}</span>
-                    <span className="text-sm text-slate-700 truncate">{dl.appName}</span>
+                    <span className="text-sm text-slate-700 truncate">{app.appName}</span>
                   </div>
                   <span className="text-xs font-medium text-slate-500 shrink-0 ml-2">
-                    v{dl.versionNumber}
+                    {app.totalDownloads.toLocaleString()} dl
                   </span>
                 </div>
               ))}
-              {!stats.recentDownloads?.length && (
+              {!topApps?.length && (
+                <p className="text-sm text-slate-400">No data available.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <h2 className="font-semibold text-slate-900 mb-4">Top Versions</h2>
+            <div className="space-y-3">
+              {topVersions?.slice(0, 5).map((version, i) => (
+                <div key={version.versionId} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs text-slate-400 w-4 shrink-0">{i + 1}</span>
+                    <span className="text-sm text-slate-700 truncate">{version.appName}</span>
+                  </div>
+                  <span className="text-xs font-medium text-slate-500 shrink-0 ml-2">
+                    v{version.versionNumber} · {version.totalDownloads.toLocaleString()} dl
+                  </span>
+                </div>
+              ))}
+              {!topVersions?.length && (
                 <p className="text-sm text-slate-400">No data available.</p>
               )}
             </div>

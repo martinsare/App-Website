@@ -20,6 +20,8 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 
 export default function Login() {
   const [, setLocation] = useLocation();
+  const searchParams = new URLSearchParams(window.location.search);
+  const nextPath = searchParams.get("next") || "/admin/dashboard";
   const login = useAdminLogin();
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +37,7 @@ export default function Login() {
     setError(null);
     try {
       await login.mutateAsync({ data });
-      setLocation("/admin/dashboard");
+      setLocation(nextPath);
     } catch (err: any) {
       setError("Invalid email or password");
     }
@@ -50,8 +52,8 @@ export default function Login() {
               <Smartphone className="w-8 h-8" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold tracking-tight">Admin Login</CardTitle>
-          <CardDescription>Enter your credentials to access the AMK Admin Portal</CardDescription>
+          <CardTitle className="text-2xl font-bold tracking-tight">Sign In</CardTitle>
+          <CardDescription>Use your account to access the admin portal and protected downloads.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">

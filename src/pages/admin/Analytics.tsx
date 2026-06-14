@@ -2,7 +2,8 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import {
   useGetAnalyticsSummary,
   useGetDownloadsOverTime,
-  useGetTopApps
+  useGetTopApps,
+  useGetTopVersions
 } from "@workspace/api-client-react";
 import { Download, Activity, CalendarDays, Calendar } from "lucide-react";
 import {
@@ -24,12 +25,12 @@ export default function Analytics() {
   const { data: summary } = useGetAnalyticsSummary();
   const { data: timeData } = useGetDownloadsOverTime({ period });
   const { data: topApps } = useGetTopApps();
+  const { data: topVersions } = useGetTopVersions();
 
   const statCards = [
     {
       label: "Total Downloads",
       value: summary?.totalDownloads.toLocaleString() || "0",
-      change: "+16.8%",
       icon: Download,
       color: "text-green-500",
       bg: "bg-green-50",
@@ -37,7 +38,6 @@ export default function Analytics() {
     {
       label: "Downloads Today",
       value: summary?.downloadsToday.toLocaleString() || "0",
-      change: "+4.2%",
       icon: Activity,
       color: "text-blue-500",
       bg: "bg-blue-50",
@@ -45,7 +45,6 @@ export default function Analytics() {
     {
       label: "Downloads This Week",
       value: summary?.downloadsThisWeek.toLocaleString() || "0",
-      change: "+8.1%",
       icon: CalendarDays,
       color: "text-orange-500",
       bg: "bg-orange-50",
@@ -53,7 +52,6 @@ export default function Analytics() {
     {
       label: "Downloads This Month",
       value: summary?.downloadsThisMonth.toLocaleString() || "0",
-      change: "+13.5%",
       icon: Calendar,
       color: "text-purple-500",
       bg: "bg-purple-50",
@@ -91,7 +89,6 @@ export default function Analytics() {
                 </div>
               </div>
               <div className="text-2xl font-bold text-slate-900">{card.value}</div>
-              <div className="text-xs text-green-600 font-medium mt-1">{card.change} vs last period</div>
             </div>
           ))}
         </div>
@@ -182,15 +179,15 @@ export default function Analytics() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {topApps?.slice(0, 5).map((app, i) => (
-                  <tr key={`v-${app.appId || i}`} className="hover:bg-slate-50 transition-colors">
+                {topVersions?.slice(0, 5).map((version, i) => (
+                  <tr key={version.versionId} className="hover:bg-slate-50 transition-colors">
                     <td className="px-5 py-3 text-slate-400 text-xs">{i + 1}</td>
-                    <td className="px-5 py-3 font-medium text-slate-800">{app.appName}</td>
-                    <td className="px-5 py-3 font-mono text-slate-500 text-xs">v{app.latestVersion}</td>
-                    <td className="px-5 py-3 text-slate-600 text-right">{app.totalDownloads?.toLocaleString()}</td>
+                    <td className="px-5 py-3 font-medium text-slate-800">{version.appName}</td>
+                    <td className="px-5 py-3 font-mono text-slate-500 text-xs">v{version.versionNumber}</td>
+                    <td className="px-5 py-3 text-slate-600 text-right">{version.totalDownloads.toLocaleString()}</td>
                   </tr>
                 ))}
-                {!topApps?.length && (
+                {!topVersions?.length && (
                   <tr><td colSpan={4} className="px-5 py-6 text-center text-slate-400 text-sm">No data</td></tr>
                 )}
               </tbody>

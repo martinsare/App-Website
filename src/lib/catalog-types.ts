@@ -99,6 +99,7 @@ export interface RecentDownload {
 
 export interface DashboardStats {
   totalApps: number;
+  totalVersions: number;
   totalDownloads: number;
   downloadsToday: number;
   weeklyDownloads: DashboardWeeklyPoint[];
@@ -116,6 +117,14 @@ export interface TopApp {
   appId: string;
   appName: string;
   latestVersion?: string | null;
+  totalDownloads: number;
+}
+
+export interface TopVersion {
+  versionId: string;
+  appId: string;
+  appName: string;
+  versionNumber: string;
   totalDownloads: number;
 }
 

@@ -1,5 +1,5 @@
 import { PublicLayout } from "@/components/layout/PublicLayout";
-import { useGetApp, useRecordDownload } from "@workspace/api-client-react";
+import { useGetApp, useGetSignedDownloadUrl, useRecordDownload } from "@workspace/api-client-react";
 import { useParams } from "wouter";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ export default function AppDetail() {
     query: { enabled: !!slug }
   });
   const recordDownload = useRecordDownload();
+  const getSignedDownloadUrl = useGetSignedDownloadUrl();
 
   if (isLoading) {
     return (
@@ -45,11 +46,16 @@ export default function AppDetail() {
 
   const latestVersion = app.versions?.find(v => v.isLatest) || app.versions?.[0];
 
-  const handleDownload = (versionId: string, url: string) => {
-    recordDownload.mutate({
-      data: { appId: app.id, versionId, userAgent: window.navigator.userAgent }
-    });
-    window.location.href = url;
+  const handleDownload = async (versionId: string, apkPath: string) => {
+    try {
+      const url = await getSignedDownloadUrl.mutateAsync({ apkPath });
+      await recordDownload.mutateAsync({
+        data: { appId: app.id, versionId, userAgent: window.navigator.userAgent }
+      });
+      window.location.href = url;
+    } catch (error) {
+      window.location.href = `/admin/login?next=${encodeURIComponent(window.location.pathname)}`;
+    }
   };
 
   return (

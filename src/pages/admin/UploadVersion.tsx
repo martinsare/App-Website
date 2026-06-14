@@ -22,7 +22,7 @@ import { Upload, CloudUpload } from "lucide-react";
 const versionSchema = z.object({
   appId: z.string().min(1, "App selection is required"),
   versionNumber: z.string().min(1, "Version number is required"),
-  apkUrl: z.string().url("Must be a valid URL"),
+  apkPath: z.string().min(1, "APK path is required"),
   fileSize: z.string().optional(),
   changelog: z.string().optional(),
   isLatest: z.boolean().default(true),
@@ -45,7 +45,7 @@ export default function UploadVersion() {
     defaultValues: {
       appId: initialAppId,
       versionNumber: "",
-      apkUrl: "",
+      apkPath: "",
       fileSize: "",
       changelog: "",
       isLatest: true,
@@ -59,8 +59,8 @@ export default function UploadVersion() {
 
   const onSubmit = async (data: VersionFormValues) => {
     try {
-      const { appId: aid, ...versionData } = data;
-      await createVersion.mutateAsync({ appId: aid, data: versionData });
+      const { appId: aid, apkPath, ...versionData } = data;
+      await createVersion.mutateAsync({ appId: aid, data: { ...versionData, apkUrl: apkPath } });
       queryClient.invalidateQueries({ queryKey: getAdminListVersionsQueryKey(aid) });
       setLocation(`/admin/apps/${aid}/versions`);
     } catch (error) {
@@ -129,14 +129,13 @@ export default function UploadVersion() {
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700">APK URL</Label>
+                <Label className="text-sm font-medium text-slate-700">APK Path</Label>
                 <Input
-                  type="url"
-                  placeholder="https://storage.example.com/app.apk"
-                  {...register("apkUrl")}
-                  className={errors.apkUrl ? "border-red-400" : ""}
+                  placeholder="releases/app-v1.apk"
+                  {...register("apkPath")}
+                  className={errors.apkPath ? "border-red-400" : ""}
                 />
-                {errors.apkUrl && <p className="text-xs text-red-500">{errors.apkUrl.message}</p>}
+                {errors.apkPath && <p className="text-xs text-red-500">{errors.apkPath.message}</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
