@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Android App Portal"
+version = "1.0.0"
+id = "artifacts/app-portal"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21013
+
+[services.development]
+run = "pnpm --filter @workspace/app-portal run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/app-portal", "run", "build" ]
+publicDir = "artifacts/app-portal/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21013"
+BASE_PATH = "/"
